@@ -1,30 +1,67 @@
 import cv2
 import time
 import math
+import torch
+import torch.nn.functional as F
+import torchvision.transforms as transforms
+from torchvision.models import resnet18
 from ultralytics import YOLO
 
-model = YOLO("yolov8n.pt")
+# --------------------------------
+# DEVICE
+# --------------------------------
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 
+# --------------------------------
+# LOAD YOLO MODEL
+# --------------------------------
+yolo_model = YOLO("yolov8s.pt")
+
+# COCO Vehicle Classes
 VEHICLE_CLASSES = [2, 3, 5, 7]
 
-cap = cv2.VideoCapture("videos/traffic.mp4")
+# --------------------------------
+# LOAD RESNET AMBULANCE MODEL
+# --------------------------------
+resnet = resnet18()
+resnet.fc = torch.nn.Linear(resnet.fc.in_features, 2)
 
-# Approximate pixel to meter conversion
-PIXEL_TO_METER = 0.05   # Adjust based on camera
+resnet.load_state_dict(torch.load("ambulance_resnet.pth", map_location=DEVICE))
+resnet.to(DEVICE)
+resnet.eval()
+
+# --------------------------------
+# IMAGE TRANSFORM FOR RESNET
+# --------------------------------
+transform = transforms.Compose([
+    transforms.ToPILImage(),
+    transforms.Resize((224, 224)),
+    transforms.ToTensor()
+])
+
+# --------------------------------
+# VIDEO SOURCE
+# --------------------------------
+cap = cv2.VideoCapture("videos/Ambulance.mp4")
+
+PIXEL_TO_METER = 0.05
 
 previous_positions = {}
 previous_times = {}
 vehicle_speeds = {}
 
+# --------------------------------
+# MAIN LOOP
+# --------------------------------
 while cap.isOpened():
 
     ret, frame = cap.read()
     if not ret:
         break
 
-    results = model.track(frame, persist=True, verbose=False)[0]
+    results = yolo_model.track(frame, persist=True, verbose=False)[0]
 
-    if results.boxes.id is not None:
+    if results.boxes is not None and results.boxes.id is not None:
 
         boxes = results.boxes.xyxy.cpu().numpy()
         ids = results.boxes.id.cpu().numpy()
@@ -36,31 +73,27 @@ while cap.isOpened():
                 continue
 
             x1, y1, x2, y2 = map(int, box)
+
+            # -------- SPEED CALCULATION --------
             center_x = int((x1 + x2) / 2)
             center_y = int((y1 + y2) / 2)
 
             obj_id = int(obj_id)
-
             current_time = time.time()
 
-            # Default speed
             speed_kmh = 0
 
-            # If we saw vehicle before
             if obj_id in previous_positions:
 
                 prev_x, prev_y = previous_positions[obj_id]
                 prev_time = previous_times[obj_id]
 
-                # Pixel displacement
                 distance_pixels = math.sqrt(
                     (center_x - prev_x) ** 2 +
                     (center_y - prev_y) ** 2
                 )
 
-                # Convert to meters
                 distance_meters = distance_pixels * PIXEL_TO_METER
-
                 time_diff = current_time - prev_time
 
                 if time_diff > 0:
@@ -69,24 +102,50 @@ while cap.isOpened():
 
             vehicle_speeds[obj_id] = int(speed_kmh)
 
-            # Update previous values
             previous_positions[obj_id] = (center_x, center_y)
             previous_times[obj_id] = current_time
 
-            # Draw bounding box
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0,255,0), 2)
+            # -------- AMBULANCE CLASSIFICATION --------
+            vehicle_crop = frame[y1:y2, x1:x2]
 
-            # Draw speed
-            text = f"{vehicle_speeds[obj_id]} km/h"
+            label = "Vehicle"
+            color = (0, 255, 0)
+
+            if vehicle_crop.size != 0:
+                try:
+                    img = transform(vehicle_crop).unsqueeze(0).to(DEVICE)
+
+                    with torch.no_grad():
+                        output = resnet(img)
+
+                        prob = F.softmax(output, dim=1)
+                        confidence, pred = torch.max(prob, dim=1)
+
+                        confidence = confidence.item()
+                        pred = pred.item()
+
+                    # Only label ambulance if confidence high
+                    if pred == 0 and confidence > 0.85:
+                        label = f"AMBULANCE 🚑 ({confidence:.2f})"
+                        color = (0, 0, 255)
+
+                except:
+                    pass
+
+            # -------- DRAW BOX --------
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+            text = f"{label} | {vehicle_speeds[obj_id]} km/h"
+
             cv2.putText(frame,
                         text,
-                        (x1, max(30, y1-10)),
+                        (x1, max(30, y1 - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX,
                         0.7,
-                        (0,0,255),
+                        color,
                         2)
 
-    cv2.imshow("Vehicle Speed Detection", frame)
+    cv2.imshow("Emergency Traffic AI", frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break

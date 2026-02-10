@@ -65,3 +65,4 @@ cover/
 *.pth
 *.onnx
 videos/
+dataset/
