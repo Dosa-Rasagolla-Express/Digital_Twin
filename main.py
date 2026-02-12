@@ -2,10 +2,8 @@ import cv2
 import time
 import math
 import torch
-import torch.nn.functional as F
-import torchvision.transforms as transforms
-from torchvision.models import resnet18
 from ultralytics import YOLO
+from smart_traffic import smart_green_time
 
 # --------------------------------
 # DEVICE
@@ -17,32 +15,20 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # --------------------------------
 yolo_model = YOLO("yolov8s.pt")
 
-# COCO Vehicle Classes
-VEHICLE_CLASSES = [2, 3, 5, 7]
-
-# --------------------------------
-# LOAD RESNET AMBULANCE MODEL
-# --------------------------------
-resnet = resnet18()
-resnet.fc = torch.nn.Linear(resnet.fc.in_features, 2)
-
-resnet.load_state_dict(torch.load("ambulance_resnet.pth", map_location=DEVICE))
-resnet.to(DEVICE)
-resnet.eval()
-
-# --------------------------------
-# IMAGE TRANSFORM FOR RESNET
-# --------------------------------
-transform = transforms.Compose([
-    transforms.ToPILImage(),
-    transforms.Resize((224, 224)),
-    transforms.ToTensor()
-])
+# COCO vehicle classes
+VEHICLE_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
 
 # --------------------------------
 # VIDEO SOURCE
 # --------------------------------
-cap = cv2.VideoCapture("videos/Ambulance.mp4")
+cap = cv2.VideoCapture("output_ambulance_detection.mp4")
+
+if not cap.isOpened():
+    print("❌ Error: Video file not opened")
+    exit()
+else:
+    print("✅ Video opened successfully")
+
 
 PIXEL_TO_METER = 0.05
 
@@ -51,14 +37,33 @@ previous_times = {}
 vehicle_speeds = {}
 
 # --------------------------------
+# TRAFFIC SIGNAL VARIABLES
+# --------------------------------
+signal_state = "GREEN"
+signal_timer = 0
+yellow_duration = 5
+red_duration = 20
+green_duration = 20
+
+# --------------------------------
 # MAIN LOOP
 # --------------------------------
 while cap.isOpened():
 
     ret, frame = cap.read()
-    if not ret:
-        break
 
+    if not ret:
+       print("❌ Frame not read. End of video or decoding problem.")
+       break
+    else:
+       print("Frame read successfully")
+
+
+    frame_vehicle_count = 0
+    frame_total_speed = 0
+    frame_ambulance_detected = False
+
+    # Track vehicles
     results = yolo_model.track(frame, persist=True, verbose=False)[0]
 
     if results.boxes is not None and results.boxes.id is not None:
@@ -73,18 +78,15 @@ while cap.isOpened():
                 continue
 
             x1, y1, x2, y2 = map(int, box)
+            obj_id = int(obj_id)
 
-            # -------- SPEED CALCULATION --------
+            # ---------------- SPEED CALCULATION ----------------
             center_x = int((x1 + x2) / 2)
             center_y = int((y1 + y2) / 2)
-
-            obj_id = int(obj_id)
             current_time = time.time()
-
             speed_kmh = 0
 
             if obj_id in previous_positions:
-
                 prev_x, prev_y = previous_positions[obj_id]
                 prev_time = previous_times[obj_id]
 
@@ -97,46 +99,28 @@ while cap.isOpened():
                 time_diff = current_time - prev_time
 
                 if time_diff > 0:
-                    speed = distance_meters / time_diff
-                    speed_kmh = speed * 3.6
-
-            vehicle_speeds[obj_id] = int(speed_kmh)
+                    speed_kmh = (distance_meters / time_diff) * 3.6
 
             previous_positions[obj_id] = (center_x, center_y)
             previous_times[obj_id] = current_time
+            vehicle_speeds[obj_id] = int(speed_kmh)
 
-            # -------- AMBULANCE CLASSIFICATION --------
-            vehicle_crop = frame[y1:y2, x1:x2]
+            frame_vehicle_count += 1
+            frame_total_speed += speed_kmh
 
-            label = "Vehicle"
+            # ---------------- LABELING ----------------
+            label = yolo_model.names[int(cls)]
             color = (0, 255, 0)
 
-            if vehicle_crop.size != 0:
-                try:
-                    img = transform(vehicle_crop).unsqueeze(0).to(DEVICE)
+            # Emergency override if ambulance class detected
+            if "ambulance" in label.lower():
+                label = "AMBULANCE 🚑"
+                color = (0, 0, 255)
+                frame_ambulance_detected = True
 
-                    with torch.no_grad():
-                        output = resnet(img)
-
-                        prob = F.softmax(output, dim=1)
-                        confidence, pred = torch.max(prob, dim=1)
-
-                        confidence = confidence.item()
-                        pred = pred.item()
-
-                    # Only label ambulance if confidence high
-                    if pred == 0 and confidence > 0.85:
-                        label = f"AMBULANCE 🚑 ({confidence:.2f})"
-                        color = (0, 0, 255)
-
-                except:
-                    pass
-
-            # -------- DRAW BOX --------
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
 
             text = f"{label} | {vehicle_speeds[obj_id]} km/h"
-
             cv2.putText(frame,
                         text,
                         (x1, max(30, y1 - 10)),
@@ -145,10 +129,81 @@ while cap.isOpened():
                         color,
                         2)
 
-    cv2.imshow("Emergency Traffic AI", frame)
+    # --------------------------------
+    # SMART TRAFFIC CALCULATION
+    # --------------------------------
+    if frame_vehicle_count > 0:
+        avg_speed = frame_total_speed / frame_vehicle_count
+    else:
+        avg_speed = 0
+
+    calculated_green_time, congestion = smart_green_time(
+        frame_vehicle_count,
+        avg_speed,
+        frame_ambulance_detected
+    )
+
+    # --------------------------------
+    # SIGNAL STATE MACHINE
+    # --------------------------------
+    signal_timer += 1 / 30  # assuming ~30 FPS
+
+    if signal_state == "GREEN":
+        green_duration = calculated_green_time
+        if signal_timer >= green_duration:
+            signal_state = "YELLOW"
+            signal_timer = 0
+
+    elif signal_state == "YELLOW":
+        if signal_timer >= yellow_duration:
+            signal_state = "RED"
+            signal_timer = 0
+
+    elif signal_state == "RED":
+        if signal_timer >= red_duration:
+            signal_state = "GREEN"
+            signal_timer = 0
+
+    # --------------------------------
+    # DRAW TRAFFIC LIGHT
+    # --------------------------------
+    cv2.rectangle(frame, (20, 200), (120, 400), (50, 50, 50), -1)
+
+    red_color = (0, 0, 100)
+    yellow_color = (0, 100, 100)
+    green_color = (0, 100, 0)
+
+    if signal_state == "RED":
+        red_color = (0, 0, 255)
+    elif signal_state == "YELLOW":
+        yellow_color = (0, 255, 255)
+    elif signal_state == "GREEN":
+        green_color = (0, 255, 0)
+
+    cv2.circle(frame, (70, 240), 25, red_color, -1)
+    cv2.circle(frame, (70, 300), 25, yellow_color, -1)
+    cv2.circle(frame, (70, 360), 25, green_color, -1)
+
+    if signal_state == "GREEN":
+        remaining = int(green_duration - signal_timer)
+    elif signal_state == "YELLOW":
+        remaining = int(yellow_duration - signal_timer)
+    else:
+        remaining = int(red_duration - signal_timer)
+
+    cv2.putText(frame,
+                f"{signal_state}: {remaining}s",
+                (20, 430),
+                cv2.FONT_HERSHEY_SIMPLEX,
+                0.8,
+                (255, 255, 255),
+                2)
+
+    cv2.imshow("Smart Emergency Traffic AI", frame)
 
     if cv2.waitKey(1) & 0xFF == 27:
         break
 
 cap.release()
 cv2.destroyAllWindows()
+
