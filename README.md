@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Vehicle Speed Detection System
 
 A real-time vehicle detection and speed estimation system built with **Python**, **OpenCV**, and **YOLOv8**.
@@ -47,3 +48,7 @@ Made with love 💛 by Raskhith Ganjimut and AI
 # speed
 # speed
 # speed
+=======
+# Dynamic_light_timings
+This gives the dynamic traffic signal timings based on priority
+>>>>>>> 1d6664246663c60521aa404a43bccbeba54dd484
