@@ -1,0 +1,153 @@
+Created At: 2026-05-29T17:27:54Z
+Completed At: 2026-05-29T17:27:55Z
+File Path: `file:///c:/Users/ayush/OneDrive/Desktop/Latest_Ambulance_Detection/Dynamic_light_timings/dashboard.py`
+Total Lines: 344
+Total Bytes: 6949
+Showing lines 1 to 344
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: import streamlit as st
+2: import pandas as pd
+3: import sqlite3
+4: import pydeck as pdk
+5: import numpy as np
+6: from sklearn.linear_model import LinearRegression
+7: 
+8: # =====================================================
+9: # PAGE CONFIG
+10: # =====================================================
+11: 
+12: st.set_page_config(
+13:     page_title="Smart Traffic Digital Twin",
+14:     layout="wide"
+15: )
+16: 
+17: st.title("🚦 Smart Traffic Digital Twin")
+18: 
+19: if st.button("🔄 Refresh Dashboard"):
+20:     st.rerun()
+21: 
+22: # =====================================================
+23: # DATABASE CONNECTION
+24: # =====================================================
+25: 
+26: conn = sqlite3.connect(
+27:     "traffic_twin.db",
+28:     check_same_thread=False
+29: )
+30: 
+31: df = pd.read_sql(
+32:     "SELECT * FROM traffic",
+33:     conn
+34: )
+35: 
+36: if len(df) == 0:
+37:     st.warning("No traffic data available.")
+38:     st.stop()
+39: 
+40: latest = df.iloc[-1]
+41: 
+42: vehicle_count = int(latest["vehicle_count"])
+43: 
+44: # =====================================================
+45: # TRAFFIC PREDICTION
+46: # =====================================================
+47: 
+48: predicted_count = vehicle_count
+49: 
+50: if len(df) > 10:
+51: 
+52:     X = np.arange(len(df)).reshape(-1, 1)
+53: 
+54:     y = df["vehicle_count"]
+55: 
+56:     model = LinearRegression()
+57: 
+58:     model.fit(X, y)
+59: 
+60:     future = np.array(
+61:         [[len(df) + 5]]
+62:     )
+63: 
+64:     predict
+<truncated 5031 bytes>
+265:     pitch=45
+266: )
+267: 
+268: deck = pdk.Deck(
+269:     layers=[
+270:         heatmap_layer,
+271:         scatter_layer
+272:     ],
+273: 
+274:     initial_view_state=view_state,
+275: 
+276:     tooltip={
+277:         "html":
+278:         "<b>{junction}</b><br/>Vehicles: {vehicles}"
+279:     }
+280: )
+281: 
+282: st.pydeck_chart(
+283:     deck,
+284:     use_container_width=True
+285: )
+286: 
+287: # =====================================================
+288: # JUNCTION STATUS
+289: # =====================================================
+290: 
+291: st.subheader("🏙️ Junction Status")
+292: 
+293: junction_display = junction_data.copy()
+294: 
+295: junction_display["Congestion"] = junction_display[
+296:     "vehicles"
+297: ].apply(
+298:     lambda x:
+299:     "LOW" if x < 10
+300:     else "MEDIUM" if x < 20
+301:     else "HIGH"
+302: )
+303: 
+304: st.dataframe(
+305:     junction_display[
+306:         [
+307:             "junction",
+308:             "vehicles",
+309:             "Congestion"
+310:         ]
+311:     ],
+312:     use_container_width=True
+313: )
+314: 
+315: # =====================================================
+316: # VEHICLE HISTORY
+317: # =====================================================
+318: 
+319: st.subheader("📈 Vehicle Count History")
+320: 
+321: st.line_chart(
+322:     df["vehicle_count"]
+323: )
+324: 
+325: # =====================================================
+326: # SPEED HISTORY
+327: # =====================================================
+328: 
+329: st.subheader("⚡ Average Speed History")
+330: 
+331: st.line_chart(
+332:     df["avg_speed"]
+333: )
+334: 
+335: # =====================================================
+336: # RECENT RECORDS
+337: # =====================================================
+338: 
+339: st.subheader("📝 Recent Traffic Records")
+340: 
+341: st.dataframe(
+342:     df.tail(10),
+343:     use_container_width=True
+344: )
+The above content shows the entire, complete file contents of the requested file.

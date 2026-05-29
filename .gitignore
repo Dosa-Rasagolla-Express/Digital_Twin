@@ -1,57 +1,19 @@
-# =========================
 # Python
-# =========================
 __pycache__/
-*.py[cod]
-*$py.class
-*.pyo
-*.pyd
+*.pyc
 
-# Virtual Environment
-.venv/
+# Virtual environments
 venv/
-env/
-ENV/
+.venv/
 
-# Distribution / packaging
-build/
-dist/
-*.egg-info/
-*.egg
-pip-wheel-metadata/
+# Database
+*.db
+
+# Images generated at runtime
+latest_frame.jpg
+
+# YOLO weights
+*.pt
 
 # Logs
 *.log
-
-# Jupyter
-.ipynb_checkpoints/
-
-# =========================
-# VSCode
-# =========================
-.vscode/
-
-# =========================
-# OS Files
-# =========================
-.DS_Store
-Thumbs.db
-
-# =========================
-# Model Weights
-# =========================
-*.pt
-*.pth
-
-# =========================
-# Videos / Outputs
-# =========================
-*.mp4
-*.avi
-*.mov
-output_*.mp4
-
-# =========================
-# Cache
-# =========================
-.cache/

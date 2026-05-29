@@ -4,7 +4,8 @@ import math
 import torch
 from ultralytics import YOLO
 from smart_traffic import smart_green_time
-
+from digital_twin import TrafficTwin
+from database import save_twin
 # --------------------------------
 # DEVICE
 # --------------------------------
@@ -14,6 +15,7 @@ DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 # LOAD YOLO MODEL
 # --------------------------------
 yolo_model = YOLO("yolov8s.pt")
+twin = TrafficTwin()
 
 # COCO vehicle classes
 VEHICLE_CLASSES = [2, 3, 5, 7]  # car, motorcycle, bus, truck
@@ -142,6 +144,16 @@ while cap.isOpened():
         avg_speed,
         frame_ambulance_detected
     )
+    twin.update(
+    frame_vehicle_count,
+    avg_speed,
+    signal_state,
+    congestion,
+    frame_ambulance_detected
+)
+    save_twin(twin)
+
+    twin.display()
 
     # --------------------------------
     # SIGNAL STATE MACHINE

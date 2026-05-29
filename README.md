@@ -1,54 +1,163 @@
-<<<<<<< HEAD
-# Vehicle Speed Detection System
+# 🚦 Smart Traffic Digital Twin
 
-A real-time vehicle detection and speed estimation system built with **Python**, **OpenCV**, and **YOLOv8**.
-
-## 🚀 Features
-- **Object Detection**: Uses the YOLOv8 Nano model (`yolov8n`) for fast and accurate vehicle detection.
-- **Vehicle Tracking**: Tracks specific vehicle classes (cars, motorcycles, buses, trucks) across frames.
-- **Speed Estimation**: Calculates approximate vehicle speed in km/h using pixel displacement and time difference.
-- **Visualisation**: Draws bounding boxes and displays speed labels directly on the video feed.
-
-## 🛠️ Requirements
-- Python 3.8+
-- OpenCV (`opencv-python`)
-- Ultralytics YOLO (`ultralytics`)
-- NumPy
-
-## 📦 Installation
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/Dosa-Rasagolla-Express/Vehicle_count-speed.git
-   cd Vehicle_count-speed
-   ```
-
-2. Install dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-3. Download the YOLOv8 weights (will usually download automatically on first run):
-   - `yolov8n.pt`
-
-## 🎬 Usage
-1. Place your input video in the `videos/` folder (default is `videos/traffic.mp4`).
-2. Run the script:
-   ```bash
-   python main.py
-   ```
-3. Press `Esc` to exit the video window.
-
-## ⚙️ Configuration
-- You can adjust the `PIXEL_TO_METER` constant in `main.py` to calibrate speed estimation for your specific camera angle and resolution.
+A production-ready **Smart City Traffic Management Digital Twin** built with Python, Streamlit, YOLOv8, SQLite, NetworkX, Scikit-Learn, and PyDeck.
 
 ---
-Made with love 💛 by Raskhith Ganjimut and AI
-# speed
-# speed
-# speed
-# speed
-# speed
-=======
-# Dynamic_light_timings
-This gives the dynamic traffic signal timings based on priority
->>>>>>> 1d6664246663c60521aa404a43bccbeba54dd484
+
+## 📌 Overview
+
+This system simulates a real-world urban traffic management environment using an AI-powered Digital Twin. It detects vehicles from live video, predicts traffic conditions, optimizes signal timings, handles emergency vehicles, and visualizes everything on an interactive city map.
+
+---
+
+## 🗂️ Project Structure
+
+```
+traffic_digital_twin/
+│
+├── dashboard.py          ← Streamlit dashboard (main UI)
+├── traffic_detector.py   ← YOLOv8 vehicle detection + tracking
+├── prediction_engine.py  ← Scikit-Learn traffic prediction
+├── signal_optimizer.py   ← Smart signal timing optimizer
+├── simulation_engine.py  ← Multi-scenario traffic simulator
+├── database.py           ← SQLite database module
+├── network_model.py      ← NetworkX junction graph
+│
+├── latest_frame.jpg      ← Auto-saved by traffic_detector.py
+├── traffic_twin.db       ← SQLite database (auto-created)
+├── yolov8s.pt            ← YOLOv8 model weights
+│
+├── requirements.txt
+└── README.md
+```
+
+---
+
+## 🚀 Quick Start
+
+### 1. Install Dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+### 2. Start the Dashboard
+
+```bash
+streamlit run dashboard.py
+```
+
+### 3. Run the Detector (separate terminal)
+
+```bash
+python traffic_detector.py --source output_ambulance_detection.mp4
+```
+
+> Use `--source 0` for webcam or `--no-window` for headless mode.
+
+---
+
+## ✨ Features
+
+| Feature | Technology |
+|---|---|
+| Vehicle Detection & Tracking | YOLOv8 + OpenCV |
+| Ambulance Detection | YOLOv8 class labels |
+| Speed Estimation | Frame-to-frame displacement |
+| Live Dashboard | Streamlit |
+| Interactive City Map | PyDeck (ScatterplotLayer + HeatmapLayer) |
+| Traffic Prediction | Scikit-Learn Polynomial Ridge Regression |
+| Signal Optimization | Rule-based + Emergency Override |
+| Junction Network | NetworkX with propagation |
+| Database | SQLite |
+| Analytics | Plotly + Pandas |
+| Scenario Simulation | Python simulation engine |
+
+---
+
+## 🎮 Simulation Scenarios
+
+| Scenario | Traffic Multiplier | Effect |
+|---|---|---|
+| Normal | 1.0× | Baseline city traffic |
+| Rain Mode | 1.35× | Slower vehicles, higher density |
+| Accident Mode | 1.8× | Major slow-down, ambulance response |
+| Road Block | 2.2× | Closure, maximum diversion |
+| Festival Traffic | 2.5× | Peak crowd movement |
+| School Rush Hour | 1.6× | School zone activity |
+
+---
+
+## 🧠 Traffic Signal Rules
+
+| Vehicle Count | Green Time |
+|---|---|
+| < 10 | 20 seconds |
+| 10 – 20 | 40 seconds |
+| 20 – 30 | 60 seconds |
+| > 30 | 90 seconds |
+| Ambulance | 90 seconds (override) |
+
+---
+
+## 🗄️ Database Schema
+
+```sql
+CREATE TABLE traffic (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp       TEXT,
+    vehicle_count   INTEGER,
+    avg_speed       REAL,
+    signal          TEXT,
+    congestion      TEXT,
+    ambulance       INTEGER
+);
+
+CREATE TABLE alerts (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp   TEXT,
+    alert_type  TEXT,
+    message     TEXT
+);
+```
+
+---
+
+## 📊 Dashboard Tabs
+
+1. **📡 Live View & Map** — Camera feed + PyDeck 3D city map
+2. **🔮 Prediction & Signals** — ML forecast + signal recommendations
+3. **🌐 Network Graph** — NetworkX junction topology
+4. **📊 Analytics** — Historical charts, distributions, tables
+5. **🚨 Alerts** — Real-time and historical alert log
+6. **⚙️ System Health** — Service status and system metrics
+
+---
+
+## 🏗️ Architecture
+
+```
+Video Source ──► traffic_detector.py ──► SQLite DB ──► dashboard.py
+                      │                                      │
+                 YOLOv8 model                    simulation_engine.py
+                 Speed estimation                prediction_engine.py
+                 Ambulance flag                  signal_optimizer.py
+                 Frame save                      network_model.py
+```
+
+---
+
+## 🎓 Academic Use
+
+This project is designed as a **final-year engineering project** demonstrating:
+- Real-time computer vision (YOLOv8, OpenCV)
+- Machine learning for time-series prediction (Scikit-Learn)
+- Graph network modelling (NetworkX)
+- Full-stack data pipeline (SQLite → Pandas → Streamlit)
+- Smart city systems design
+
+---
+
+## 📋 License
+
+For academic and educational use.
