@@ -132,9 +132,16 @@ def optimize_all_junctions(
     recommendations = {}
 
     for jname, info in junction_data.items():
-        vc  = info.get("vehicle_count", 0)
-        amb = info.get("ambulance", False) or global_ambulance
-        recommendations[jname] = get_signal_recommendation(jname, vc, amb)
+        if isinstance(info, int):
+            vc = info
+            amb = global_ambulance
+        else:
+            vc = info.get("vehicle_count", 0)
+            amb = info.get("ambulance", False) or global_ambulance
+
+        recommendations[jname] = get_signal_recommendation(
+            jname, vc, amb
+        )
 
     return recommendations
 

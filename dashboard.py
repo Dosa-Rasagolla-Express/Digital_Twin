@@ -621,7 +621,19 @@ with tab2:
             unsafe_allow_html=True
         )
 
-        opt_signals = optimize_all_junctions(junction_vehicles)
+        opt_signals_raw = optimize_all_junctions(junction_vehicles)
+        opt_signals = []
+        for jname, rec in opt_signals_raw.items():
+            congestion = "EMERGENCY" if rec.emergency_override else classify_congestion(rec.vehicle_count)
+            opt_signals.append({
+                "junction": rec.junction,
+                "vehicle_count": rec.vehicle_count,
+                "congestion": congestion,
+                "green_time": rec.green_time,
+                "red_time": rec.red_time,
+                "reason": rec.reason,
+                "emergency_override": rec.emergency_override
+            })
         st.dataframe(pd.DataFrame(opt_signals), use_container_width=True)
 
         fig_sig = px.bar(
