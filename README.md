@@ -149,7 +149,7 @@ Video Source ──► traffic_detector.py ──► SQLite DB ──► dashboa
 
 ## 🎓 Academic Use
 
-This project is designed as a **final-year engineering project** demonstrating:
+This project is designed as a ** engineering project** demonstrating:
 - Real-time computer vision (YOLOv8, OpenCV)
 - Machine learning for time-series prediction (Scikit-Learn)
 - Graph network modelling (NetworkX)
