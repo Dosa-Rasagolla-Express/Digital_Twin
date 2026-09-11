@@ -22,6 +22,11 @@ traffic_digital_twin/
 ├── simulation_engine.py  ← Multi-scenario traffic simulator
 ├── database.py           ← SQLite database module
 ├── network_model.py      ← NetworkX junction graph
+├── arbitration.py        ← Multi-EV arbitration (merge/sequence/partial)
+├── degradation.py        ← Graceful degradation hierarchy state machine
+├── reid_handover.py      ← GPS-free cross-camera ReID handover (Novelty N2)
+├── eta_predictor.py      ← Route prediction + uncertainty-aware ETA/UCB trigger (Novelty N3)
+├── twin_engine.py        ← Digital twin decision engine: generate/simulate/select (Novelty N1)
 │
 ├── latest_frame.jpg      ← Auto-saved by traffic_detector.py
 ├── traffic_twin.db       ← SQLite database (auto-created)
@@ -72,6 +77,11 @@ python traffic_detector.py --source output_ambulance_detection.mp4
 | Database | SQLite |
 | Analytics | Plotly + Pandas |
 | Scenario Simulation | Python simulation engine |
+| Multi-EV Arbitration | Union-find corridor clustering + priority scoring |
+| Graceful Degradation | Deterministic state machine (edge autonomy / conservative hold) |
+| Cross-Camera ReID Handover | Embedding distance + bearing/travel-time gated identity matching |
+| Uncertainty-Aware ETA & Trigger | Route-probability + mean/std/UCB arrival bands (scipy) |
+| Twin Decision Engine | Candidate generation → simulation → constrained selection (argmin J) |
 
 ---
 
@@ -131,6 +141,8 @@ CREATE TABLE alerts (
 4. **📊 Analytics** — Historical charts, distributions, tables
 5. **🚨 Alerts** — Real-time and historical alert log
 6. **⚙️ System Health** — Service status and system metrics
+7. **🚑 Multi-EV & Resilience** — Multi-ambulance arbitration + degradation hierarchy (N5/N6)
+8. **🧠 Twin Decision Engine** — Route prediction, ETA/UCB trigger, candidate schedules, ReID handover trace (N1/N2/N3)
 
 ---
 
