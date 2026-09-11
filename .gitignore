@@ -17,3 +17,5 @@ latest_frame.jpg
 
 # Logs
 *.log
+config.bat
+node_modules

@@ -30,7 +30,13 @@ from signal_optimizer  import (get_signal_recommendation, optimize_all_junctions
                                 calculate_green_time)
 from simulation_engine import (get_simulation_frame, get_scenario_names,
                                 get_scenario_info, JUNCTIONS)
-from network_model     import (render_network_graph, network_stats, propagate_congestion)
+from network_model     import (render_network_graph, network_stats, propagate_congestion,
+                                junction_bearing_deg, junction_distance_m)
+from arbitration       import EmergencyVehicle, arbitrate
+from degradation       import DegradationManager, HealthSignal
+from reid_handover     import ReIDHandoverManager
+from eta_predictor     import predict_routes, eta_bands_for_route, trigger_decisions_for_route
+from twin_engine       import select_schedule, W_AMBULANCE, W_CONFLICTING, W_STOPS
 
 # ─────────────────────────────────────────────
 # PAGE CONFIG
@@ -252,6 +258,14 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ── Multi-EV & Resilience (Novelty N5 / N6) ─
+    st.markdown("### 🚑 Multi-EV & Resilience")
+    num_ambulances  = st.slider("Convergent Ambulances (demo)", 1, 3, 1, key="num_amb")
+    cloud_link_down = st.toggle("🔌 Simulate Cloud Link Failure", value=False, key="cloud_down")
+    tracking_lost   = st.toggle("📡 Simulate Tracking Loss",      value=False, key="track_lost")
+
+    st.markdown("---")
+
     # ── Auto-Refresh ────────────────────────────
     st.markdown("### 🔄 Auto Refresh")
     auto_refresh = st.toggle("Enable Auto-Refresh", value=False, key="auto_ref")
@@ -328,6 +342,98 @@ ambulance_active = (
     or emergency_mode
     or sim_frame.global_ambulance
 )
+
+
+# ─────────────────────────────────────────────
+# MULTI-EV ARBITRATION (Novelty N5) &
+# GRACEFUL DEGRADATION HIERARCHY (Novelty N6)
+# ─────────────────────────────────────────────
+ROUTE_POOL = [
+    ["West Junction", "Main Junction", "North Junction"],
+    ["South Junction", "Main Junction", "East Junction"],
+    ["Main Junction", "North Junction", "East Junction"],
+]
+
+demo_evs = []
+if ambulance_active:
+    for i in range(num_ambulances):
+        demo_evs.append(EmergencyVehicle(
+            ev_id=f"EV-{i + 1}",
+            route=ROUTE_POOL[i % len(ROUTE_POOL)],
+            severity=["CRITICAL", "URGENT", "ROUTINE"][i % 3],
+            eta_seconds=25 + i * 15,
+        ))
+
+arbitration_decisions = arbitrate(demo_evs)
+
+# ─────────────────────────────────────────────
+# GPS-FREE CROSS-CAMERA REID HANDOVER (Novelty N2)
+# ─────────────────────────────────────────────
+if "reid_mgr" not in st.session_state:
+    st.session_state["reid_mgr"] = ReIDHandoverManager()
+reid_mgr = st.session_state["reid_mgr"]
+
+primary_ev = demo_evs[0] if demo_evs else None
+handover_lost = False
+
+if primary_ev:
+    corridor_id = primary_ev.ev_id
+    if corridor_id not in reid_mgr.tracks:
+        reid_mgr.acquire(corridor_id, primary_ev.route[0])
+
+    now = datetime.now()
+    for i in range(len(primary_ev.route) - 1):
+        from_cam, to_cam = primary_ev.route[i], primary_ev.route[i + 1]
+        if reid_mgr.tracks[corridor_id].current_camera != from_cam:
+            continue  # this hop already confirmed in an earlier rerun
+        bearing = junction_bearing_deg(from_cam, to_cam)
+        reid_mgr.exit_camera(corridor_id, bearing_deg=bearing, when=now)
+        travel_s = junction_distance_m(from_cam, to_cam) / (42.0 * 1000 / 3600)
+        arrival = now.fromtimestamp(now.timestamp() + travel_s)
+        reid_mgr.attempt_handover(corridor_id, to_cam, when=arrival)
+        now = arrival
+
+    handover_lost = reid_mgr.is_lost(corridor_id)
+
+# ─────────────────────────────────────────────
+# TWIN DECISION ENGINE (Novelty N1) +
+# UNCERTAINTY-AWARE ETA / TRIGGER (Novelty N3)
+# ─────────────────────────────────────────────
+route_hypotheses = predict_routes(primary_ev.route[0]) if primary_ev else []
+eta_bands: dict = {}
+trigger_decisions_list = []
+twin_winner = None
+twin_ranked = []
+
+if primary_ev:
+    eta_bands = eta_bands_for_route(primary_ev.route)
+    queue_lengths = {
+        j: propagated_veh.get(j, junction_vehicles.get(j, 0))
+        for j in primary_ev.route[1:]
+    }
+    trigger_decisions_list = trigger_decisions_for_route(
+        primary_ev.route, eta_bands, queue_lengths
+    )
+    twin_winner, twin_ranked = select_schedule(
+        primary_ev.route, eta_bands, queue_lengths,
+        n_candidates=16, seed=primary_ev.ev_id,
+    )
+
+if "degradation_mgr" not in st.session_state:
+    st.session_state["degradation_mgr"] = DegradationManager()
+degradation_mgr = st.session_state["degradation_mgr"]
+
+if twin_winner is not None and twin_winner.feasible:
+    degradation_mgr.cache_corridor(primary_ev.route)
+elif demo_evs:
+    degradation_mgr.cache_corridor(demo_evs[0].route)
+
+degradation_mgr.evaluate(HealthSignal(
+    cloud_link_ok    = not cloud_link_down,
+    tracking_ok      = not tracking_lost and not handover_lost,
+    corridor_active  = ambulance_active,
+    ambulance_passed = not ambulance_active,
+))
 
 
 # ─────────────────────────────────────────────
@@ -416,13 +522,15 @@ st.markdown("---")
 # ─────────────────────────────────────────────
 # ━━━━━  TABS  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # ─────────────────────────────────────────────
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
     "📡 Live View & Map",
     "🔮 Prediction & Signals",
     "🌐 Network Graph",
     "📊 Analytics",
     "🚨 Alerts",
     "⚙️ System Health",
+    "🚑 Multi-EV & Resilience",
+    "🧠 Twin Decision Engine",
 ])
 
 
@@ -769,3 +877,169 @@ with tab6:
                 f'</div>',
                 unsafe_allow_html=True
             )
+
+
+# ══════════════════════════════════════════════
+# TAB 7 — MULTI-EV ARBITRATION & DEGRADATION HIERARCHY
+# ══════════════════════════════════════════════
+with tab7:
+    st.markdown("### 🚑 Multi-Emergency-Vehicle Arbitration  _(Novelty N5)_")
+
+    if not arbitration_decisions:
+        st.info(
+            "No active emergency vehicles. Enable **🚨 Emergency Mode** in the "
+            "sidebar (and raise **Convergent Ambulances**) to see corridors "
+            "merged or arbitrated live."
+        )
+    else:
+        arb_rows = [{
+            "Vehicle":            d.ev_id,
+            "Action":             d.action.value,
+            "Priority Score":     d.priority_score,
+            "Activated Segment":  " → ".join(d.activated_segment),
+            "Merged / Yields To": ", ".join(d.merged_with) if d.merged_with else "—",
+            "Reason":             d.reason,
+        } for d in arbitration_decisions]
+        st.dataframe(pd.DataFrame(arb_rows), use_container_width=True, hide_index=True)
+        st.caption(
+            "Corridors sharing a spine in the same direction are **MERGED** into one "
+            "green wave; conflicting corridors are ranked by priority score "
+            "P = f(severity, remaining ETA, route overlap) and the lower-priority "
+            "corridor is degraded to a **PARTIAL**, non-shared segment — patent §7.2 / Step 9."
+        )
+
+    st.markdown("---")
+    st.markdown("### 🛡️ Graceful Degradation Hierarchy  _(Novelty N6)_")
+
+    dg1, dg2 = st.columns([1, 2], gap="medium")
+    with dg1:
+        st.metric("Current Mode", degradation_mgr.status_line())
+        cached = degradation_mgr.last_known_good_corridor
+        st.markdown(
+            f'<div class="info-card">'
+            f'<small style="color:#555555;">Last-known-good corridor</small><br>'
+            f'<b style="color:#000080;">{" → ".join(cached) if cached else "—"}</b>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Toggle **🔌 Simulate Cloud Link Failure** or **📡 Simulate Tracking "
+            "Loss** in the sidebar to drive the state machine through its "
+            "fallback modes — patent §7.3 / Step 8."
+        )
+    with dg2:
+        history = degradation_mgr.recent_history()
+        if history:
+            hist_rows = [{
+                "Time":   ev.timestamp.strftime("%H:%M:%S"),
+                "From":   ev.from_state.value,
+                "To":     ev.to_state.value,
+                "Reason": ev.reason,
+            } for ev in reversed(history)]
+            st.dataframe(pd.DataFrame(hist_rows), use_container_width=True, hide_index=True)
+        else:
+            st.info("No degradation events yet in this session.")
+
+
+# ══════════════════════════════════════════════
+# TAB 8 — TWIN DECISION ENGINE (N1) + REID HANDOVER (N2) + ETA/TRIGGER (N3)
+# ══════════════════════════════════════════════
+with tab8:
+    if not primary_ev:
+        st.info(
+            "No active emergency vehicle. Enable **🚨 Emergency Mode** in the "
+            "sidebar to see the twin generate, simulate, and select a "
+            "corridor schedule live."
+        )
+    else:
+        st.markdown("### 🎯 Probabilistic Route Prediction  _(Step 4)_")
+        if route_hypotheses:
+            route_rows = [{
+                "Route":       " → ".join(h.path),
+                "Probability": h.probability,
+            } for h in route_hypotheses]
+            st.dataframe(pd.DataFrame(route_rows), use_container_width=True, hide_index=True)
+        st.caption(
+            f"Top hypothesis is treated as the active corridor for "
+            f"**{primary_ev.ev_id}**: {' → '.join(primary_ev.route)}."
+        )
+
+        st.markdown("---")
+        st.markdown("### 📶 Uncertainty-Aware ETA Bands & Trigger Rule  _(Novelty N3)_")
+        eta_cols = st.columns([2, 2])
+        with eta_cols[0]:
+            if eta_bands:
+                eta_rows = [{
+                    "Junction":  band.junction,
+                    "Mean ETA (s)": band.mean_s,
+                    "Std (s)":      band.std_s,
+                    f"UCB{int(band.confidence_level*100)} (s)": band.ucb_s,
+                } for band in eta_bands.values()]
+                st.dataframe(pd.DataFrame(eta_rows), use_container_width=True, hide_index=True)
+        with eta_cols[1]:
+            if trigger_decisions_list:
+                trig_rows = [{
+                    "Junction":      d.junction,
+                    "UCB ETA (s)":   d.ucb_eta_s,
+                    "Queue Clear (s)": d.queue_clear_s,
+                    "Decision":      "🚦 TRIGGER" if d.should_trigger else "⏳ Hold",
+                } for d in trigger_decisions_list]
+                st.dataframe(pd.DataFrame(trig_rows), use_container_width=True, hide_index=True)
+        st.caption(
+            "Corridor preparation fires when UCB(ETA) − t_clear(queue) ≤ margin — "
+            "a reliability guarantee absent from point-estimate ETA systems "
+            "(patent §7.2 / Step 6)."
+        )
+
+        st.markdown("---")
+        st.markdown("### 🧬 Digital Twin: Candidate Generation → Simulation → Selection  _(Novelty N1)_")
+        if twin_ranked:
+            n_feasible = sum(m.feasible for m in twin_ranked)
+            st.caption(
+                f"Generated {len(twin_ranked)} candidate corridor schedules, "
+                f"{n_feasible} satisfy hard constraints (pedestrian walk, yellow, all-red). "
+                f"Selector picked the feasible candidate minimizing "
+                f"J = {W_AMBULANCE}·ambulance_delay + {W_CONFLICTING}·conflicting_delay + "
+                f"{W_STOPS}·stops."
+            )
+            cand_rows = [{
+                "Schedule":  m.schedule.schedule_id,
+                "Feasible":  "✅" if m.feasible else "❌",
+                "Objective J": m.objective_j if m.feasible else "∞",
+                "Ambulance Delay (s)": m.ambulance_delay_s,
+                "Conflicting Delay (s)": m.conflicting_delay_s,
+                "Stops": m.stop_count,
+                "Note": "" if m.feasible else m.infeasibility_reason,
+                "Selected": "🏆" if twin_winner and m.schedule.schedule_id == twin_winner.schedule.schedule_id else "",
+            } for m in twin_ranked[:10]]
+            st.dataframe(pd.DataFrame(cand_rows), use_container_width=True, hide_index=True)
+
+            if twin_winner and not twin_winner.feasible:
+                st.warning(
+                    "No candidate satisfied every hard constraint this tick — "
+                    "falling back toward CONSERVATIVE_HOLD (see §7.3 / Step 8)."
+                )
+
+        st.markdown("---")
+        st.markdown("### 📡 Cross-Camera ReID Handover Trace  _(Novelty N2)_")
+        events = reid_mgr.timeline(primary_ev.ev_id) if primary_ev else []
+        hc1, hc2 = st.columns([1, 2])
+        with hc1:
+            st.metric("Corridor Status", reid_mgr.status(primary_ev.ev_id))
+        with hc2:
+            if events:
+                ev_rows = [{
+                    "From → To": f"{e.from_camera} → {e.to_camera}",
+                    "Matched": "✅" if e.matched else "❌",
+                    "Embedding Dist.": e.embedding_distance,
+                    "Implied Speed (km/h)": e.implied_speed_kmh,
+                    "Bearing Δ (°)": e.bearing_delta_deg,
+                } for e in events]
+                st.dataframe(pd.DataFrame(ev_rows), use_container_width=True, hide_index=True)
+            else:
+                st.info("No camera-to-camera hops recorded yet for this corridor.")
+        st.caption(
+            "Unique corridor ID confirmed across adjacent cameras only when embedding "
+            "distance, exit-bearing/entry-gate compatibility, and travel-time feasibility "
+            "all pass (patent Claim 2) — zero ambulance-side hardware required."
+        )
