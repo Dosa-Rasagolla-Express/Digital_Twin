@@ -7,6 +7,7 @@ Models 5 interconnected junctions and propagates traffic conditions
 between neighbours (congestion spill-over effect).
 """
 
+import math
 import networkx as nx
 import pandas as pd
 import numpy as np
@@ -43,6 +44,27 @@ JUNCTION_EDGES = [
 PROPAGATION_FACTOR = 0.25
 HIGH_THRESHOLD     = 20
 MEDIUM_THRESHOLD   = 10
+
+# Demo map scale: 1 JUNCTION_POS unit = 1000 metres.
+POSITION_SCALE_M = 1000.0
+
+
+# ─────────────────────────────────────────────
+# GEOMETRY HELPERS
+# (shared by reid_handover.py and eta_predictor.py — both need
+#  inter-junction distance/bearing on the same topology used here)
+# ─────────────────────────────────────────────
+
+def junction_distance_m(a: str, b: str) -> float:
+    """Straight-line distance between two junctions, in metres."""
+    (x1, y1), (x2, y2) = JUNCTION_POS[a], JUNCTION_POS[b]
+    return math.hypot(x2 - x1, y2 - y1) * POSITION_SCALE_M
+
+
+def junction_bearing_deg(a: str, b: str) -> float:
+    """Compass-style bearing (0-360°) from junction a to junction b."""
+    (x1, y1), (x2, y2) = JUNCTION_POS[a], JUNCTION_POS[b]
+    return math.degrees(math.atan2(x2 - x1, y2 - y1)) % 360
 
 
 # ─────────────────────────────────────────────
